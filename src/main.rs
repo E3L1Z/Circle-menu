@@ -11,7 +11,6 @@ mod config_loader;
 
 const SOFTWARE_NAME: &str = "Circle-menu";
 const STYLE_FILE_PATH: &str = "./src/style.css";
-const CHILD_POSITION_MULTIPLIER: f64 = 300.0;
 
 
 fn activate(application: &gtk::Application) {
@@ -58,7 +57,7 @@ fn load_css() {
 }
 
 
-fn create_button_container(x: &f64, y: &f64, fixed: &gtk::Fixed, config: Rc<config_loader::Config>, id: &str) -> nodes::ButtonContainer{
+fn create_button_container(x: &f64, y: &f64, fixed: &gtk::Fixed, config: Rc<config_loader::Config>, id: &str) -> gtk::Button{
     let own_config = config.nodes.get(id).expect(&format!("{} was not specified in config", id));
     
     let orientation: gtk::Orientation;
@@ -86,12 +85,12 @@ fn create_button_container(x: &f64, y: &f64, fixed: &gtk::Fixed, config: Rc<conf
         button.set_child(Some(&picture));
     }
 
-    nodes::ButtonContainer::initialize(container, button, label)
+    button
 }
 
 
 fn create_node(id: &str, config: Rc<config_loader::Config>, x: &f64, y: &f64, fixed: &gtk::Fixed, window: &gtk::ApplicationWindow) -> nodes::RootNode{
-    let node = config.nodes.get("root").expect("Root is not defined");
+    let node = config.nodes.get(id).expect("Root is not defined");
 
     let mut child_nodes = Vec::new();
     for (index, child) in node.nodes.iter().enumerate(){
@@ -102,26 +101,29 @@ fn create_node(id: &str, config: Rc<config_loader::Config>, x: &f64, y: &f64, fi
         let mut angle = (f64::consts::PI * 2.0) / (config.general.max_child_node_count as f64) * (index as f64);
         if config.general.fill_wheel { angle = (f64::consts::PI * 2.0) / (node.nodes.len() as f64) * (index as f64); }
 
-        let child_x = f64::sin(angle) * CHILD_POSITION_MULTIPLIER + x;
-        let child_y = f64::cos(angle) * -1.0 * CHILD_POSITION_MULTIPLIER + y;
+        let wheel_size = config.general.wheel_size;
+
+        let child_x = f64::sin(angle) * wheel_size + x;
+        let child_y = f64::cos(angle) * -1.0 * wheel_size + y;
 
         let child_container = create_button_container(&child_x, &child_y, fixed, Rc::clone(&config), child);
 
         let child_node = nodes::ChildNode::initialize(child.clone(), child_config.on_click.clone(), child_container);
 
         if child_config.nodes.len() > 0{
-            child_node.button_container.button.connect_clicked({
-                let id_clone: String = String::from(id);
-                let x = x.clone();
-                let y = y.clone();
-                clone!(#[weak] config, #[weak] fixed, #[weak] window, move |_| {
-                    create_node(&id_clone, config, &x, &y, &fixed, &window);
+            child_node.button.connect_clicked({
+                let id_clone: String = String::from(child);
+                let sub_wheel_distance = config.general.sub_wheel_distance;
+                let x = child_x + (child_x - x) * sub_wheel_distance;
+                let y = child_y + (child_y - y) * sub_wheel_distance;
+                clone!(#[strong] config, #[strong] fixed, #[strong] window, move |_| {
+                    create_node(&id_clone, Rc::clone(&config), &x, &y, &fixed, &window);
                 })
             });
         } else {
-            child_node.button_container.button.connect_clicked({
+            child_node.button.connect_clicked({
                 let button_on_click = child_node.on_click.clone();
-                clone!(#[weak] window, move |_| {
+                clone!(#[strong] window, move |_| {
                     Command::new("sh").arg("-c").arg(&button_on_click).spawn().expect("failed to execute process");
                     window.close();
             })});
